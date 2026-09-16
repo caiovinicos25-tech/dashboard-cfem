@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -10,21 +9,21 @@ st.set_page_config(
     layout="wide"
 )
 
-# Carregamento e tratamento dos dados
-@st.cache_data
+# Carregamento e tratamento dos dados com conversão numérica incondicional
+@st.cache_data(ttl=3600)
 def load_data():
     df = pd.read_csv('Planilha_CFEM_consolidada.csv', sep=';', encoding='utf-8-sig')
     
-    # Converter colunas numéricas
+    # Converter colunas numéricas de forma incondicional e blindada
     num_cols = ['Total Operações', 'CFEM 100%', 'CFEM 60%']
     for col in num_cols:
-        if df[col].dtype == object:
-            df[col] = df[col].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        s = df[col].astype(str)
+        s = s.str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+        df[col] = pd.to_numeric(s, errors='coerce').fillna(0.0)
             
-    df['Ano'] = df['Ano'].astype(int)
-    df['Mês Ref'] = df['Mês Ref'].astype(int)
-    df['Mês Pagto'] = df['Mês Pagto'].astype(int)
+    df['Ano'] = pd.to_numeric(df['Ano'], errors='coerce').fillna(0).astype(int)
+    df['Mês Ref'] = pd.to_numeric(df['Mês Ref'], errors='coerce').fillna(0).astype(int)
+    df['Mês Pagto'] = pd.to_numeric(df['Mês Pagto'], errors='coerce').fillna(0).astype(int)
     df['Possível Inconsistência'] = df['Possível Inconsistência'].fillna('Regular')
     
     return df
@@ -91,10 +90,11 @@ st.markdown("Visão clara e interativa dos repasses municipais da CFEM correlaci
 
 col1, col2, col3, col4 = st.columns(4)
 
-total_cfem_60 = float(df_filtrado['CFEM 60%'].sum())
-total_operacoes = float(df_filtrado['Total Operações'].sum())
+# Cálculo seguro dos indicadores
+total_cfem_60 = float(pd.to_numeric(df_filtrado['CFEM 60%'], errors='coerce').fillna(0.0).sum())
+total_operacoes = float(pd.to_numeric(df_filtrado['Total Operações'], errors='coerce').fillna(0.0).sum())
 inconsistentes = df_filtrado[df_filtrado['Possível Inconsistência'] != 'Regular']
-val_inconsistente = float(inconsistentes['CFEM 60%'].sum())
+val_inconsistente = float(pd.to_numeric(inconsistentes['CFEM 60%'], errors='coerce').fillna(0.0).sum())
 qtd_registros = len(df_filtrado)
 
 col1.metric("Repasse Municipal Total (CFEM 60%)", f"R$ {total_cfem_60:,.2f}")
@@ -234,6 +234,3 @@ with tab4:
         file_name="CFEM_60_filtrado.csv",
         mime="text/csv"
     )
-
-
-
