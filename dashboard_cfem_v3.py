@@ -1,7 +1,7 @@
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 
 # Configuração da página no Streamlit
 st.set_page_config(
@@ -10,32 +10,29 @@ st.set_page_config(
     layout="wide"
 )
 
-# Carregamento e tratamento super robusto dos dados
+# Carregamento e tratamento dos dados
 @st.cache_data
 def load_data():
-    # Tenta carregar o CSV local
     df = pd.read_csv('Planilha_CFEM_consolidada.csv', sep=';', encoding='utf-8-sig')
     
-    # Garantir conversão estrita de colunas numéricas
+    # Converter colunas numéricas
     num_cols = ['Total Operações', 'CFEM 100%', 'CFEM 60%']
     for col in num_cols:
-        if col in df.columns:
-            # Forçar conversão de texto formatado (ex: '96.565,22') para float
-            s = df[col].astype(str).str.replace('R$', '', regex=False).str.strip()
-            s = s.str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
-            df[col] = pd.to_numeric(s, errors='coerce').fillna(0.0)
+        if df[col].dtype == object:
+            df[col] = df[col].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
-    df['Ano'] = pd.to_numeric(df['Ano'], errors='coerce').fillna(0).astype(int)
-    df['Mês Ref'] = pd.to_numeric(df['Mês Ref'], errors='coerce').fillna(0).astype(int)
-    df['Mês Pagto'] = pd.to_numeric(df['Mês Pagto'], errors='coerce').fillna(0).astype(int)
-    df['Possível Inconsistência'] = df['Possível Inconsistência'].fillna('Regular').astype(str)
+    df['Ano'] = df['Ano'].astype(int)
+    df['Mês Ref'] = df['Mês Ref'].astype(int)
+    df['Mês Pagto'] = df['Mês Pagto'].astype(int)
+    df['Possível Inconsistência'] = df['Possível Inconsistência'].fillna('Regular')
     
     return df
 
 try:
     df = load_data()
 except Exception as e:
-    st.error(f"Erro ao carregar o arquivo 'Planilha_CFEM_consolidada.csv': {e}")
+    st.error(f"Erro ao carregar os dados. Verifique o arquivo CSV: {e}")
     st.stop()
 
 # --- BARRA LATERAL: FILTROS DINÂMICOS ---
@@ -48,24 +45,24 @@ sufixo_escala = "Mi" if escala_opcao == "Em Milhões (R$ Mi)" else "R$"
 
 st.sidebar.markdown("---")
 
-# Filtro de Mineradora
-empresas_disponiveis = sorted(df['Empresa'].dropna().unique().tolist())
-empresas_selecionadas = st.sidebar.multiselect(
-    "Selecione as Mineradoras:",
-    options=empresas_disponiveis,
-    default=empresas_disponiveis
-)
-
 # Filtro de Ano
-anos_disponiveis = sorted(df['Ano'].dropna().unique().tolist())
+anos_disponiveis = sorted(df['Ano'].unique().tolist())
 anos_selecionados = st.sidebar.multiselect(
     "Selecione os Anos:",
     options=anos_disponiveis,
     default=anos_disponiveis
 )
 
-# Filtro de Substância / Material
-substancias_disponiveis = sorted(df['Substância'].dropna().unique().tolist())
+# Filtro de Empresa
+empresas_disponiveis = sorted(df['Empresa'].unique().tolist())
+empresas_selecionadas = st.sidebar.multiselect(
+    "Selecione as Mineradoras:",
+    options=empresas_disponiveis,
+    default=empresas_disponiveis
+)
+
+# Filtro de Substância
+substancias_disponiveis = sorted(df['Substância'].unique().tolist())
 substancias_selecionadas = st.sidebar.multiselect(
     "Selecione os Materiais/Substâncias:",
     options=substancias_disponiveis,
@@ -73,14 +70,14 @@ substancias_selecionadas = st.sidebar.multiselect(
 )
 
 # Filtro de Inconsistência
-status_inconsistencias = sorted(df['Possível Inconsistência'].dropna().unique().tolist())
+status_inconsistencias = sorted(df['Possível Inconsistência'].unique().tolist())
 status_selecionados = st.sidebar.multiselect(
     "Status de Pagamento:",
     options=status_inconsistencias,
     default=status_inconsistencias
 )
 
-# Aplicação dos filtros no DataFrame
+# Aplicação dos filtros
 df_filtrado = df[
     (df['Ano'].isin(anos_selecionados)) &
     (df['Empresa'].isin(empresas_selecionadas)) &
@@ -96,7 +93,7 @@ col1, col2, col3, col4 = st.columns(4)
 
 total_cfem_60 = float(df_filtrado['CFEM 60%'].sum())
 total_operacoes = float(df_filtrado['Total Operações'].sum())
-inconsistentes = df_filtrado[df_filtrado['Possível Inconsistência'].str.contains('SIM', case=False, na=False)]
+inconsistentes = df_filtrado[df_filtrado['Possível Inconsistência'] != 'Regular']
 val_inconsistente = float(inconsistentes['CFEM 60%'].sum())
 qtd_registros = len(df_filtrado)
 
@@ -113,47 +110,51 @@ tab1, tab2, tab3, tab4 = st.tabs(["📊 Evolução Mensal (Linhas)", "🏢 Compa
 with tab1:
     st.subheader("Comparativo Mês a Mês do Repasse Municipal (CFEM 60%)")
     
-    modo_visao = st.radio("Modo de Visualização:", ["Comparar Empresas no Ano/Período", "Evolução Interanual (2024 vs 2025 vs 2026)"], horizontal=True)
+    col_t1, col_t2 = st.columns(2)
+    with col_t1:
+        criterio_mes = st.radio("🗓️ Eixo Temporal do Gráfico:", ["Mês de Competência (Mês Ref)", "Mês de Pagamento (Mês Pagto)"], horizontal=True)
+    with col_t2:
+        modo_visao = st.radio("🔍 Modo de Visualização:", ["Comparar Empresas no Ano/Período", "Evolução Interanual"], horizontal=True)
+        
+    col_mes = 'Mês Ref' if "Competência" in criterio_mes else 'Mês Pagto'
+    label_eixo_x = "Mês de Competência (Fato Gerador)" if col_mes == 'Mês Ref' else "Mês de Pagamento (Caixa Efetivo)"
     
     if modo_visao == "Comparar Empresas no Ano/Período":
-        df_mensal = df_filtrado.groupby(['Mês Ref', 'Empresa'])['CFEM 60%'].sum().reset_index()
+        df_mensal = df_filtrado.groupby([col_mes, 'Empresa'])['CFEM 60%'].sum().reset_index()
         df_mensal['CFEM_Escala'] = df_mensal['CFEM 60%'] / divisor
         
         fig_line = px.line(
             df_mensal,
-            x='Mês Ref',
+            x=col_mes,
             y='CFEM_Escala',
             color='Empresa',
             markers=True,
             color_discrete_sequence=px.colors.qualitative.Bold,
-            labels={'Mês Ref': 'Mês de Referência', 'CFEM_Escala': f'CFEM 60% ({sufixo_escala})'},
-            title="Repasse Mensal por Mineradora (Linhas Distintas em Alto Contraste)"
+            labels={col_mes: label_eixo_x, 'CFEM_Escala': f'CFEM 60% ({sufixo_escala})'},
+            title=f"Repasse Mensal por Mineradora base " + label_eixo_x
         )
         fig_line.update_traces(line=dict(width=3), marker=dict(size=8))
         fig_line.update_xaxes(dtick=1, range=[0.5, 12.5])
         fig_line.update_layout(hovermode="x unified", height=520)
         st.plotly_chart(fig_line, use_container_width=True)
         
-        st.markdown("**Valores Exatos do Repasse Mensal (R$) por Mineradora:**")
-        if len(df_filtrado) > 0:
-            pivot_mensal = df_filtrado.pivot_table(index='Empresa', columns='Mês Ref', values='CFEM 60%', aggfunc='sum', fill_value=0)
-            st.dataframe(pivot_mensal.style.format("R$ {:,.2f}"), use_container_width=True)
-        else:
-            st.info("Nenhum dado selecionado.")
+        st.markdown(f"**Valores Exatos do Repasse Mensal (R$) por Mineradora ({label_eixo_x}):**")
+        pivot_mensal = df_filtrado.pivot_table(index='Empresa', columns=col_mes, values='CFEM 60%', aggfunc='sum', fill_value=0)
+        st.dataframe(pivot_mensal.style.format("R$ {:,.2f}"), use_container_width=True)
         
     else:
-        df_interanual = df_filtrado.groupby(['Mês Ref', 'Ano'])['CFEM 60%'].sum().reset_index()
+        df_interanual = df_filtrado.groupby([col_mes, 'Ano'])['CFEM 60%'].sum().reset_index()
         df_interanual['Ano'] = df_interanual['Ano'].astype(str)
         df_interanual['CFEM_Escala'] = df_interanual['CFEM 60%'] / divisor
         
         fig_inter = px.line(
             df_interanual,
-            x='Mês Ref',
+            x=col_mes,
             y='CFEM_Escala',
             color='Ano',
             markers=True,
-            labels={'Mês Ref': 'Mês de Referência', 'CFEM_Escala': f'CFEM 60% ({sufixo_escala})'},
-            title="Evolução do Repasse Municipal Mês a Mês Comparando Exercícios"
+            labels={col_mes: label_eixo_x, 'CFEM_Escala': f'CFEM 60% ({sufixo_escala})'},
+            title=f"Evolução Interanual do Repasse base " + label_eixo_x
         )
         fig_inter.update_traces(line=dict(width=3), marker=dict(size=8))
         fig_inter.update_xaxes(dtick=1, range=[0.5, 12.5])
@@ -214,7 +215,7 @@ with tab2:
 
 with tab3:
     st.subheader("⚠️ Auditoria de Inconsistências Temporal de Pagamento")
-    st.markdown("Registros em que o mês de pagamento difere do mês de referência regular (ex: pagamentos em lote ou antecipados).")
+    st.markdown("Registros em que o mês de pagamento difere do mês de referência regular (ex: pagamentos em lote ou atrasados).")
     
     if len(inconsistentes) > 0:
         st.warning(f"Atenção: Foram encontrados {len(inconsistentes)} registros com possível inconsistência, somando R$ {val_inconsistente:,.2f} de repasse municipal.")
@@ -233,3 +234,6 @@ with tab4:
         file_name="CFEM_60_filtrado.csv",
         mime="text/csv"
     )
+
+
+
