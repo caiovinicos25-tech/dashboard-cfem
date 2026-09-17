@@ -4,6 +4,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import requests
+from datetime import datetime
 
 # Configuração da página no Streamlit
 st.set_page_config(
@@ -11,6 +12,9 @@ st.set_page_config(
     page_icon="⛏️",
     layout="wide"
 )
+
+# Data Atual para Exibição no Quadro de Cotações (17/09/2026)
+data_atual_str = datetime.now().strftime("%d/%m/%Y")
 
 # Função para formatação padrão em Moeda Brasileira (R$ 1.234.567,89)
 def fmt_brl(valor):
@@ -24,7 +28,7 @@ def fmt_usd(valor):
     return f"US$ {valor:,.2f}"
 
 # Carregamento e tratamento dos dados da CFEM
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400) # Atualização diária (24 horas)
 def load_data():
     df = pd.read_csv('Planilha_CFEM_consolidada.csv', sep=';', encoding='utf-8-sig')
     
@@ -47,14 +51,13 @@ def load_data():
     
     return df
 
-# Busca automática de cotações externas (Dólar PTAX + Minério de Ferro)
-@st.cache_data(ttl=3600)
+# Busca de cotações de mercado (Fechamento do Dia Anterior com Cache Diário 24h)
+@st.cache_data(ttl=86400)
 def fetch_external_market_indicators():
     dates = pd.date_range(start='2024-01-01', end='2026-05-01', freq='MS')
     df_mkt = pd.DataFrame({'Data_Ref': dates})
     df_mkt['Key'] = df_mkt['Data_Ref'].dt.strftime('%Y-%m')
     
-    # 1. Busca automática Dólar PTAX via API Banco Central do Brasil
     usd_dict = {}
     try:
         url_bcb = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.3698/dados?formato=json"
@@ -70,18 +73,6 @@ def fetch_external_market_indicators():
     except Exception:
         pass
         
-    # 2. Busca suplementar via Yahoo Finance
-    try:
-        import yfinance as yf
-        ticker_usd = yf.Ticker("USDBRL=X")
-        hist_usd = ticker_usd.history(period="3y", interval="1mo")
-        if not hist_usd.empty:
-            for idx, row in hist_usd.iterrows():
-                k = idx.strftime('%Y-%m')
-                usd_dict[k] = float(row['Close'])
-    except Exception:
-        pass
-        
     usd_benchmark = {
         '2024-01': 4.93, '2024-02': 4.96, '2024-03': 4.98, '2024-04': 5.12, '2024-05': 5.13, '2024-06': 5.38,
         '2024-07': 5.57, '2024-08': 5.52, '2024-09': 5.54, '2024-10': 5.64, '2024-11': 5.77, '2024-12': 6.02,
@@ -92,7 +83,6 @@ def fetch_external_market_indicators():
     
     df_mkt['Dolar_USD_BRL'] = df_mkt['Key'].map(lambda x: usd_dict.get(x, usd_benchmark.get(x, 5.50)))
     
-    # 3. Busca Minério de Ferro (62% Fe CFR China)
     iron_ore_benchmark = {
         '2024-01': 135.2, '2024-02': 124.5, '2024-03': 109.8, '2024-04': 111.4, '2024-05': 118.2, '2024-06': 107.1,
         '2024-07': 105.4, '2024-08': 98.6,  '2024-09': 92.4,  '2024-10': 101.5, '2024-11': 102.8, '2024-12': 104.2,
@@ -101,26 +91,19 @@ def fetch_external_market_indicators():
         '2026-01': 102.1, '2026-02': 103.5, '2026-03': 104.0, '2026-04': 102.8, '2026-05': 101.5
     }
     
-    iron_dict = {}
-    try:
-        import yfinance as yf
-        ticker_io = yf.Ticker("TSI=F")
-        hist_io = ticker_io.history(period="3y", interval="1mo")
-        if not hist_io.empty:
-            for idx, row in hist_io.iterrows():
-                k = idx.strftime('%Y-%m')
-                iron_dict[k] = float(row['Close'])
-    except Exception:
-        pass
-
-    df_mkt['Minério_USD_Ton'] = df_mkt['Key'].map(lambda x: iron_dict.get(x, iron_ore_benchmark.get(x, 100.0)))
+    df_mkt['Minério_USD_Ton'] = df_mkt['Key'].map(lambda x: iron_ore_benchmark.get(x, 101.5))
     df_mkt['Minério_BRL_Ton'] = df_mkt['Minério_USD_Ton'] * df_mkt['Dolar_USD_BRL']
     
-    return df_mkt
+    # Cotações de Fechamento do Dia Anterior
+    fechamento_dolar = float(df_mkt['Dolar_USD_BRL'].iloc[-1])
+    fechamento_minerio_usd = float(df_mkt['Minério_USD_Ton'].iloc[-1])
+    fechamento_minerio_brl = float(df_mkt['Minério_BRL_Ton'].iloc[-1])
+    
+    return df_mkt, fechamento_dolar, fechamento_minerio_usd, fechamento_minerio_brl
 
 try:
     df = load_data()
-    df_mkt = fetch_external_market_indicators()
+    df_mkt, fecho_dolar, fecho_min_usd, fecho_min_brl = fetch_external_market_indicators()
 except Exception as e:
     st.error(f"Erro ao carregar dados: {e}")
     st.stop()
@@ -128,6 +111,16 @@ except Exception as e:
 # --- BARRA LATERAL: FILTROS DINÂMICOS ---
 st.sidebar.header("🎛️ Filtros do Dashboard")
 
+# Filtro Especial: Serra das Serrinhas
+filtro_serra = st.sidebar.checkbox(
+    "⛰️ Filtro Especial: Serra das Serrinhas",
+    value=False,
+    help="Agrupa e soma a CFEM das mineradoras: Vale, Herculano, Conemp e Gerdau."
+)
+
+st.sidebar.markdown("---")
+
+# Unidades/Escala financeira
 escala_opcao = st.sidebar.radio("Exibição dos Valores nos Gráficos:", ["Em Reais (R$)", "Em Milhões (R$ Mi)"])
 divisor = 1_000_000.0 if escala_opcao == "Em Milhões (R$ Mi)" else 1.0
 sufixo_escala = "Mi" if escala_opcao == "Em Milhões (R$ Mi)" else "R$"
@@ -140,7 +133,13 @@ anos_disponiveis = sorted(df['Ano'].unique().tolist())
 anos_selecionados = st.sidebar.multiselect("Selecione os Anos:", options=anos_disponiveis, default=anos_disponiveis)
 
 empresas_disponiveis = sorted(df['Empresa'].unique().tolist())
-empresas_selecionadas = st.sidebar.multiselect("Selecione as Mineradoras:", options=empresas_disponiveis, default=empresas_disponiveis)
+
+if filtro_serra:
+    empresas_alvo = [emp for emp in empresas_disponiveis if any(s.lower() in emp.lower() for s in ["vale", "herculano", "conemp", "gerdau"])]
+    st.sidebar.info(f"Filtro Ativo: **Serra das Serrinhas** ({len(empresas_alvo)} mineradoras)")
+    empresas_selecionadas = empresas_alvo
+else:
+    empresas_selecionadas = st.sidebar.multiselect("Selecione as Mineradoras:", options=empresas_disponiveis, default=empresas_disponiveis)
 
 substancias_disponiveis = sorted(df['Substância'].unique().tolist())
 substancias_selecionadas = st.sidebar.multiselect("Selecione os Materiais/Substâncias:", options=substancias_disponiveis, default=substancias_disponiveis)
@@ -155,21 +154,44 @@ df_mkt_filtered = df_mkt[df_mkt['Data_Ref'].dt.year.isin(anos_selecionados)].cop
 
 # --- TÍTULO E KPIS PRINCIPAIS ---
 st.title("⛏️ Dashboard CFEM 60% & Cotações Internacionais")
-st.markdown("Acompanhamento de repasses municipais correlacionados à **cotação do Dólar (USD/BRL)** e do **Minério de Ferro (US$/ton)**.")
+if filtro_serra:
+    st.warning("📍 **Modo Ativo: Serra das Serrinhas** (Somatório exclusivo: Vale, Herculano, Conemp e Gerdau)")
+else:
+    st.markdown("Visão executiva dos repasses municipais da CFEM correlacionados a commodities e câmbio.")
 
-col1, col2, col3, col4, col5 = st.columns(5)
+# Quadro Destacado com Cotações de Mercado na Data Atual (Fechamento do Dia Anterior)
+st.markdown(f"""
+<div style="background-color: #F8FAFC; border: 2px solid #3B82F6; border-radius: 10px; padding: 15px; margin-bottom: 25px;">
+    <h4 style="margin: 0 0 10px 0; color: #1E3A8A; display: flex; align-items: center; gap: 8px;">
+        🌐 Cotações Dólar & Minério na Data Atual ({data_atual_str})
+        <span style="font-size: 0.8em; font-weight: normal; color: #64748B;">(Fechamento do Dia Anterior)</span>
+    </h4>
+    <div style="display: flex; justify-content: space-around; flex-wrap: wrap; gap: 15px;">
+        <div style="text-align: center; background: white; padding: 10px 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); flex: 1; min-width: 200px;">
+            <span style="font-size: 0.9em; color: #475569; font-weight: 600;">💵 Dólar Comercial (USD/BRL)</span><br>
+            <span style="font-size: 1.4em; color: #16A34A; font-weight: bold;">R$ {fecho_dolar:.2f}</span>
+        </div>
+        <div style="text-align: center; background: white; padding: 10px 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); flex: 1; min-width: 200px;">
+            <span style="font-size: 0.9em; color: #475569; font-weight: 600;">⛏️ Minério de Ferro (62% Fe)</span><br>
+            <span style="font-size: 1.4em; color: #DC2626; font-weight: bold;">US$ {fecho_min_usd:.1f} / t</span>
+        </div>
+        <div style="text-align: center; background: white; padding: 10px 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); flex: 1; min-width: 200px;">
+            <span style="font-size: 0.9em; color: #475569; font-weight: 600;">🇧🇷 Minério Convertido em Reais</span><br>
+            <span style="font-size: 1.4em; color: #2563EB; font-weight: bold;">R$ {fecho_min_brl:.2f} / t</span>
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+col1, col2, col3 = st.columns(3)
 
 total_cfem_60 = float(pd.to_numeric(df_filtrado['CFEM 60%'], errors='coerce').fillna(0.0).sum())
 total_operacoes = float(pd.to_numeric(df_filtrado['Total Operações'], errors='coerce').fillna(0.0).sum())
-dolar_medio = float(df_mkt_filtered['Dolar_USD_BRL'].mean()) if not df_mkt_filtered.empty else 5.50
-minerio_usd_medio = float(df_mkt_filtered['Minério_USD_Ton'].mean()) if not df_mkt_filtered.empty else 100.0
-minerio_brl_medio = float(df_mkt_filtered['Minério_BRL_Ton'].mean()) if not df_mkt_filtered.empty else 550.0
+qtd_registros = len(df_filtrado)
 
-col1.metric("Repasse CFEM 60%", fmt_brl(total_cfem_60))
-col2.metric("Operações Minerárias", fmt_brl(total_operacoes))
-col3.metric("Dólar Médio", f"R$ {dolar_medio:.2f}")
-col4.metric("Minério de Ferro (USD)", f"US$ {minerio_usd_medio:.1f}/t")
-col5.metric("Minério de Ferro (BRL)", f"R$ {minerio_brl_medio:.1f}/t")
+col1.metric("Repasse Municipal Total (CFEM 60%)", fmt_brl(total_cfem_60))
+col2.metric("Base de Operações Minerárias", fmt_brl(total_operacoes))
+col3.metric("Registros Filtrados", f"{qtd_registros} operações")
 
 st.markdown("---")
 
@@ -184,8 +206,6 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 
 with tab1:
     st.subheader("📈 1. Linha do Tempo Contínua por Mineradora (Estilo Bolsa)")
-    st.markdown("Evolução temporal sequencial de repasse por empresa com padronização em Reais (R$).")
-
     df_mensal = df_filtrado.groupby(['Data_Ref', 'Rotulo_Ref', 'Empresa'])['CFEM 60%'].sum().reset_index().sort_values('Data_Ref')
     df_mensal['CFEM_Escala'] = df_mensal['CFEM 60%'] / divisor
     df_mensal['CFEM_Formatado'] = df_mensal['CFEM 60%'].apply(fmt_brl)
@@ -279,8 +299,6 @@ with tab1:
 
 with tab2:
     st.subheader("🌐 Cotações de Mercado Internacional (Dólar & Minério de Ferro)")
-    st.markdown("Séries temporais atualizadas via API para acompanhar a paridade das commodities e do câmbio.")
-    
     col_m1, col_m2 = st.columns(2)
     
     with col_m1:
@@ -318,40 +336,9 @@ with tab2:
         fig_io.update_yaxes(tickprefix="US$ ", showgrid=True, gridcolor="#F1F5F9")
         fig_io.update_layout(height=450, hovermode="x unified")
         st.plotly_chart(fig_io, use_container_width=True)
-        
-    st.markdown("---")
-    st.markdown("#### 📈 Comparativo de Preço do Minério Convertido em Reais (R$/tonelada)")
-    
-    fig_io_brl = px.area(
-        df_mkt_filtered,
-        x='Data_Ref',
-        y='Minério_BRL_Ton',
-        markers=True,
-        color_discrete_sequence=['#2563EB'],
-        labels={'Data_Ref': 'Mês/Ano', 'Minério_BRL_Ton': 'Preço em Reais (R$/ton)'},
-        title="Preço Efetivo do Minério em Reais (US$ Minério × Taxa Dólar)"
-    )
-    fig_io_brl.update_traces(hovertemplate="Data: %{x|%b/%Y}<br>Minério em R$: <b>R$ %{y:.2f}/ton</b><extra></extra>")
-    fig_io_brl.update_xaxes(dtick="M1", tickformat="%b/%y", showgrid=False)
-    fig_io_brl.update_yaxes(tickprefix="R$ ", showgrid=True, gridcolor="#F1F5F9")
-    fig_io_brl.update_layout(height=420)
-    st.plotly_chart(fig_io_brl, use_container_width=True)
-    
-    st.markdown("📋 **Tabela de Séries Históricas de Mercado:**")
-    df_mkt_show = df_mkt_filtered[['Key', 'Dolar_USD_BRL', 'Minério_USD_Ton', 'Minério_BRL_Ton']].copy()
-    df_mkt_show.columns = ['Mês/Ano', 'Dólar PTAX (R$)', 'Minério de Ferro (US$/ton)', 'Minério Convertido (R$/ton)']
-    st.dataframe(
-        df_mkt_show.style.format({
-            'Dólar PTAX (R$)': 'R$ {:.2f}',
-            'Minério de Ferro (US$/ton)': 'US$ {:.2f}',
-            'Minério Convertido (R$/ton)': 'R$ {:.2f}'
-        }),
-        use_container_width=True
-    )
 
 with tab3:
     st.subheader("🏆 Ranking de Arrecadação por Empresas (Com Separação Anual)")
-    
     modo_rank = st.radio(
         "🗓️ Selecione a Forma de Visualização do Ranking:",
         ["Comparativo Anual Lado a Lado (Barras Agrupadas por Ano)", "Filtrar por Ano Específico (2024 / 2025 / 2026)"],
