@@ -13,7 +13,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Data Atual para Exibição no Quadro de Cotações (17/09/2026)
+# Data Atual para Exibição no Quadro de Cotações
 data_atual_str = datetime.now().strftime("%d/%m/%Y")
 
 # Função para formatação padrão em Moeda Brasileira (R$ 1.234.567,89)
@@ -115,7 +115,7 @@ st.sidebar.header("🎛️ Filtros do Dashboard")
 filtro_serra = st.sidebar.checkbox(
     "⛰️ Filtro Especial: Serra das Serrinhas",
     value=False,
-    help="Agrupa e soma a CFEM das mineradoras: Vale, Herculano, Conemp e Gerdau."
+    help="Agrupa e consolida os valores das mineradoras Vale, Herculano, Conemp e Gerdau em uma única entidade chamada 'Serra das Serrinhas'."
 )
 
 st.sidebar.markdown("---")
@@ -136,7 +136,7 @@ empresas_disponiveis = sorted(df['Empresa'].unique().tolist())
 
 if filtro_serra:
     empresas_alvo = [emp for emp in empresas_disponiveis if any(s.lower() in emp.lower() for s in ["vale", "herculano", "conemp", "gerdau"])]
-    st.sidebar.info(f"Filtro Ativo: **Serra das Serrinhas** ({len(empresas_alvo)} mineradoras)")
+    st.sidebar.info(f"Filtro Ativo: **Serra das Serrinhas** (Consolidando {len(empresas_alvo)} mineradoras em 1 única linha)")
     empresas_selecionadas = empresas_alvo
 else:
     empresas_selecionadas = st.sidebar.multiselect("Selecione as Mineradoras:", options=empresas_disponiveis, default=empresas_disponiveis)
@@ -144,18 +144,23 @@ else:
 substancias_disponiveis = sorted(df['Substância'].unique().tolist())
 substancias_selecionadas = st.sidebar.multiselect("Selecione os Materiais/Substâncias:", options=substancias_disponiveis, default=substancias_disponiveis)
 
+# Filtragem dos dados
 df_filtrado = df[
     (df['Ano'].isin(anos_selecionados)) &
     (df['Empresa'].isin(empresas_selecionadas)) &
     (df['Substância'].isin(substancias_selecionadas))
 ].copy()
 
+# Se o filtro Serra das Serrinhas estiver ativo, unifica o nome das 4 empresas para "Serra das Serrinhas"
+if filtro_serra:
+    df_filtrado['Empresa'] = 'Serra das Serrinhas'
+
 df_mkt_filtered = df_mkt[df_mkt['Data_Ref'].dt.year.isin(anos_selecionados)].copy()
 
 # --- TÍTULO E KPIS PRINCIPAIS ---
 st.title("⛏️ Dashboard CFEM 60% & Cotações Internacionais")
 if filtro_serra:
-    st.warning("📍 **Modo Ativo: Serra das Serrinhas** (Somatório exclusivo: Vale, Herculano, Conemp e Gerdau)")
+    st.warning("📍 **Modo Ativo: Serra das Serrinhas** (Linha única consolidada somando Vale, Herculano, Conemp e Gerdau)")
 else:
     st.markdown("Visão executiva dos repasses municipais da CFEM correlacionados a commodities e câmbio.")
 
@@ -216,15 +221,15 @@ with tab1:
         y='CFEM_Escala',
         color='Empresa',
         markers=True,
-        color_discrete_sequence=px.colors.qualitative.Bold,
+        color_discrete_sequence=['#2563EB'] if filtro_serra else px.colors.qualitative.Bold,
         custom_data=['Rotulo_Ref', 'CFEM_Formatado'],
-        labels={'Data_Ref': 'Período (Mês/Ano)', 'CFEM_Escala': f'CFEM 60% ({sufixo_escala})', 'Empresa': 'Mineradora'},
-        title="Histórico Contínuo de Repasse por Mineradora"
+        labels={'Data_Ref': 'Período (Mês/Ano)', 'CFEM_Escala': f'CFEM 60% ({sufixo_escala})', 'Empresa': 'Entidade / Mineradora'},
+        title="Histórico Contínuo de Repasse - " + ("Serra das Serrinhas (Consolidado)" if filtro_serra else "Por Mineradora")
     )
     
     fig_line.update_traces(
-        line=dict(width=3),
-        marker=dict(size=7),
+        line=dict(width=3.5 if filtro_serra else 3),
+        marker=dict(size=8 if filtro_serra else 7),
         hovertemplate="<b>%{customdata}</b><br>%{fullData.name}<br>Repasse: <b>%{customdata[2]}</b><extra></extra>"
     )
     
@@ -369,12 +374,12 @@ with tab3:
                 barmode='group',
                 orientation='h',
                 custom_data=['Ano_Str', 'CFEM_Formatado'],
-                labels={'CFEM_Escala': f'CFEM 60% ({sufixo_escala})', 'Empresa': 'Mineradora', 'Ano_Str': 'Ano'},
+                labels={'CFEM_Escala': f'CFEM 60% ({sufixo_escala})', 'Empresa': 'Entidade / Mineradora', 'Ano_Str': 'Ano'},
                 color_discrete_sequence=px.colors.qualitative.Set1,
                 title="Comparativo de Arrecadação por Empresa Separado por Ano"
             )
             fig_bar_ano.update_traces(
-                hovertemplate="Mineradora: %{y}<br>Ano: <b>%{customdata}</b><br>Repasse: <b>%{customdata[2]}</b><extra></extra>"
+                hovertemplate="Entidade: %{y}<br>Ano: <b>%{customdata}</b><br>Repasse: <b>%{customdata[2]}</b><extra></extra>"
             )
             fig_bar_ano.update_layout(height=540, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_bar_ano, use_container_width=True)
@@ -418,7 +423,7 @@ with tab3:
                         y='Empresa',
                         orientation='h',
                         custom_data=['CFEM_Formatado'],
-                        labels={'CFEM_Escala': f'CFEM 60% ({sufixo_escala})', 'Empresa': 'Mineradora'},
+                        labels={'CFEM_Escala': f'CFEM 60% ({sufixo_escala})', 'Empresa': 'Entidade / Mineradora'},
                         color='CFEM_60_Total',
                         color_continuous_scale='Blues'
                     )
@@ -438,7 +443,7 @@ with tab3:
                     
                 df_show_single = pd.DataFrame({
                     'Posição': df_rank_sel['Posição'],
-                    'Mineradora': df_rank_sel['Empresa'],
+                    'Mineradora / Entidade': df_rank_sel['Empresa'],
                     f'Repasse CFEM 60% ({ano_sel})': df_rank_sel['CFEM_Formatado'],
                     f'Faturamento Operacional ({ano_sel})': df_rank_sel['Operacoes_Formatado'],
                     'Participação (%)': df_rank_sel['Market_Share_%'].astype(str) + '%',
