@@ -1,3 +1,4 @@
+```
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -89,8 +90,8 @@ substancias_selecionadas = st.sidebar.multiselect(
 
 # Aplicação dos filtros pré-estabelecidos
 df_filtrado = df[
-    (df['Ano'].isin(anos_selecionados)) &
-    (df['Empresa'].isin(empresas_selecionadas)) &
+    (df['Ano'].isin(anos_selecionados)) &amp;
+    (df['Empresa'].isin(empresas_selecionadas)) &amp;
     (df['Substância'].isin(substancias_selecionadas))
 ].copy()
 
@@ -112,7 +113,7 @@ st.markdown("---")
 
 # --- GRÁFICOS INTERATIVOS ---
 tab1, tab2, tab3, tab4 = st.tabs([
-    "📊 Evolução Mensal & Interanual",
+    "📊 Evolução Mensal &amp; Interanual",
     "🏆 Ranking por Empresas (Separação Anual)",
     "🧱 Distribuição por Material",
     "📋 Base de Dados Filtrada"
@@ -120,7 +121,7 @@ tab1, tab2, tab3, tab4 = st.tabs([
 
 with tab1:
     st.subheader("📈 1. Linha do Tempo Contínua por Mineradora (Estilo Bolsa)")
-    st.markdown("Evolução temporal sequencial contínua de repasse por empresa com padronização em Reais (R$) e ajuste de amplitude visual.")
+    st.markdown("Evolução temporal sequencial contínua de repasse por empresa com padronização em Reais (R$) e visualização limpa.")
 
     df_mensal = df_filtrado.groupby(['Data_Ref', 'Rotulo_Ref', 'Empresa'])['CFEM 60%'].sum().reset_index().sort_values('Data_Ref')
     df_mensal['CFEM_Escala'] = df_mensal['CFEM 60%'] / divisor
@@ -141,9 +142,10 @@ with tab1:
     fig_line.update_traces(
         line=dict(width=3),
         marker=dict(size=7),
-        hovertemplate="<b>%{customdata}</b><br>%{fullData.name}<br>Repasse: <b>%{customdata[1]}</b><extra></extra>"
+        hovertemplate="<b>%{customdata}</b><br />%{fullData.name}<br />Repasse: <b>%{customdata[1]}</b>"
     )
     
+    # Configuração do Eixo Y e X - Limpo e sem poluição de grade e legenda
     y_type = "log" if escala_log else "linear"
     fig_line.update_yaxes(
         type=y_type,
@@ -151,21 +153,29 @@ with tab1:
         title_text=f"CFEM 60% ({sufixo_escala})",
         tickprefix="R$ " if escala_opcao == "Em Reais (R$)" else "",
         showgrid=True,
-        gridcolor="#E2E8F0"
+        gridcolor="#F1F5F9",
+        zeroline=False
     )
     fig_line.update_xaxes(
         dtick="M1",
         tickformat="%b/%y",
         hoverformat="%b/%Y",
         title_text="Mês de Competência",
-        showgrid=True,
-        gridcolor="#E2E8F0"
+        showgrid=False,
+        zeroline=False
     )
     fig_line.update_layout(
         hovermode="x unified",
-        height=540,
-        margin=dict(l=20, r=20, t=50, b=30),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        height=580,
+        margin=dict(l=20, r=20, t=50, b=100),
+        legend=dict(
+            title_text="",
+            orientation="h",
+            yanchor="top",
+            y=-0.20,
+            xanchor="center",
+            x=0.5
+        )
     )
     st.plotly_chart(fig_line, use_container_width=True)
     
@@ -195,7 +205,7 @@ with tab1:
     fig_inter.update_traces(
         line=dict(width=3.5),
         marker=dict(size=8),
-        hovertemplate="Mês %{x}<br>Ano: %{fullData.name}<br>Total: <b>%{customdata}</b><extra></extra>"
+        hovertemplate="Mês %{x}<br />Ano: %{fullData.name}<br />Total: <b>%{customdata}</b>"
     )
     fig_inter.update_xaxes(
         dtick=1,
@@ -249,7 +259,6 @@ with tab2:
             df_rank_ano['CFEM_Escala'] = df_rank_ano['CFEM_60_Total'] / divisor
             df_rank_ano['CFEM_Formatado'] = df_rank_ano['CFEM_60_Total'].apply(fmt_brl)
             
-            # Ordenar por total geral acumulado para consistência de exibição
             ordem_empresas = df_filtrado.groupby('Empresa')['CFEM 60%'].sum().sort_values(ascending=True).index.tolist()
             df_rank_ano['Empresa'] = pd.Categorical(df_rank_ano['Empresa'], categories=ordem_empresas, ordered=True)
             df_rank_ano = df_rank_ano.sort_values('Empresa')
@@ -267,7 +276,7 @@ with tab2:
                 title="Comparativo de Arrecadação por Empresa Separado por Ano"
             )
             fig_bar_ano.update_traces(
-                hovertemplate="Mineradora: %{y}<br>Ano: <b>%{customdata}</b><br>Repasse: <b>%{customdata[1]}</b><extra></extra>"
+                hovertemplate="Mineradora: %{y}<br />Ano: <b>%{customdata}</b><br />Repasse: <b>%{customdata[1]}</b>"
             )
             fig_bar_ano.update_layout(height=540, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_bar_ano, use_container_width=True)
@@ -307,7 +316,7 @@ with tab2:
             
             if not df_rank_sel.empty:
                 total_ano_sel = df_rank_sel['CFEM_60_Total'].sum()
-                df_rank_sel['Market_Share_%'] = (df_rank_sel['CFEM_60_Total'] / total_ano_sel * 100).round(2) if total_ano_sel > 0 else 0
+                df_rank_sel['Market_Share_%'] = (df_rank_sel['CFEM_60_Total'] / total_ano_sel * 100).round(2) if total_ano_sel &gt; 0 else 0
                 df_rank_sel['CFEM_Escala'] = df_rank_sel['CFEM_60_Total'] / divisor
                 df_rank_sel['CFEM_Formatado'] = df_rank_sel['CFEM_60_Total'].apply(fmt_brl)
                 df_rank_sel['Operacoes_Formatado'] = df_rank_sel['Total_Operacoes'].apply(fmt_brl)
@@ -328,7 +337,7 @@ with tab2:
                         color_continuous_scale='Blues'
                     )
                     fig_bar_single.update_traces(
-                        hovertemplate="Mineradora: %{y}<br>Repasse em " + str(ano_sel) + ": <b>%{customdata}</b><extra></extra>"
+                        hovertemplate="Mineradora: %{y}<br />Repasse em " + str(ano_sel) + ": <b>%{customdata}</b>"
                     )
                     fig_bar_single.update_layout(height=480, showlegend=False)
                     st.plotly_chart(fig_bar_single, use_container_width=True)
@@ -346,7 +355,7 @@ with tab2:
                     fig_pie_single.update_traces(
                         textposition='inside',
                         textinfo='percent+label',
-                        hovertemplate="Mineradora: %{label}<br>Repasse: <b>%{customdata}</b><br>Participação: %{percent}<extra></extra>"
+                        hovertemplate="Mineradora: %{label}<br />Repasse: <b>%{customdata}</b><br />Participação: %{percent}"
                     )
                     fig_pie_single.update_layout(height=480)
                     st.plotly_chart(fig_pie_single, use_container_width=True)
@@ -384,7 +393,7 @@ with tab3:
         title="Distribuição de Repasse por Material Extraído"
     )
     fig_mat.update_traces(
-        hovertemplate="Material: %{x}<br>Empresa: %{fullData.name}<br>Repasse: <b>%{customdata}</b><extra></extra>"
+        hovertemplate="Material: %{x}<br />Empresa: %{fullData.name}<br />Repasse: <b>%{customdata}</b>"
     )
     fig_mat.update_layout(height=500)
     st.plotly_chart(fig_mat, use_container_width=True)
@@ -402,3 +411,5 @@ with tab4:
         file_name="CFEM_60_Competencia_filtrado.csv",
         mime="text/csv"
     )
+
+```
