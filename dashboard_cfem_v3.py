@@ -8,7 +8,7 @@ from datetime import datetime
 
 # Configuração da página no Streamlit
 st.set_page_config(
-    page_title="Dashboard BI - CFEM Mineração & Mercado",
+    page_title="Itabirito - Dashboard CFEM 60% & Cotações Internacionais",
     page_icon="⛏️",
     layout="wide"
 )
@@ -27,7 +27,7 @@ def fmt_usd(valor):
         return "US$ 0.00"
     return f"US$ {valor:,.2f}"
 
-# Carregamento e tratamento dos dados da CFEM (com tolerância a codificações de texto)
+# Carregamento e tratamento dos dados da CFEM (com blindagem de codificação UTF-8 / Latin1)
 @st.cache_data(ttl=86400) # Atualização diária (24 horas)
 def load_data():
     try:
@@ -97,6 +97,7 @@ def fetch_external_market_indicators():
     df_mkt['Minério_USD_Ton'] = df_mkt['Key'].map(lambda x: iron_ore_benchmark.get(x, 101.5))
     df_mkt['Minério_BRL_Ton'] = df_mkt['Minério_USD_Ton'] * df_mkt['Dolar_USD_BRL']
     
+    # Cotações de Fechamento do Dia Anterior
     fechamento_dolar = float(df_mkt['Dolar_USD_BRL'].iloc[-1])
     fechamento_minerio_usd = float(df_mkt['Minério_USD_Ton'].iloc[-1])
     fechamento_minerio_brl = float(df_mkt['Minério_BRL_Ton'].iloc[-1])
@@ -122,6 +123,7 @@ filtro_serra = st.sidebar.checkbox(
 
 st.sidebar.markdown("---")
 
+# Unidades/Escala financeira
 escala_opcao = st.sidebar.radio("Exibição dos Valores nos Gráficos:", ["Em Reais (R$)", "Em Milhões (R$ Mi)"])
 divisor = 1_000_000.0 if escala_opcao == "Em Milhões (R$ Mi)" else 1.0
 sufixo_escala = "Mi" if escala_opcao == "Em Milhões (R$ Mi)" else "R$"
@@ -145,24 +147,27 @@ else:
 substancias_disponiveis = sorted(df['Substância'].unique().tolist())
 substancias_selecionadas = st.sidebar.multiselect("Selecione os Materiais/Substâncias:", options=substancias_disponiveis, default=substancias_disponiveis)
 
+# Filtragem dos dados
 df_filtrado = df[
     (df['Ano'].isin(anos_selecionados)) &
     (df['Empresa'].isin(empresas_selecionadas)) &
     (df['Substância'].isin(substancias_selecionadas))
 ].copy()
 
+# Se o filtro Serra das Serrinhas estiver ativo, unifica o nome das 4 empresas para "Serra das Serrinhas"
 if filtro_serra:
     df_filtrado['Empresa'] = 'Serra das Serrinhas'
 
 df_mkt_filtered = df_mkt[df_mkt['Data_Ref'].dt.year.isin(anos_selecionados)].copy()
 
 # --- TÍTULO E KPIS PRINCIPAIS ---
-st.title("⛏️ Dashboard CFEM 60% & Cotações Internacionais")
+st.title("⛏️ Itabirito - Dashboard CFEM 60% & Cotações Internacionais")
 if filtro_serra:
     st.warning("📍 **Modo Ativo: Serra das Serrinhas** (Linha única consolidada somando Vale, Herculano, Conemp e Gerdau)")
 else:
     st.markdown("Visão executiva dos repasses municipais da CFEM correlacionados a commodities e câmbio.")
 
+# Quadro Destacado com Cotações de Mercado na Data Atual (Fechamento do Dia Anterior)
 st.markdown(f"""
 <div style="background-color: #F8FAFC; border: 2px solid #3B82F6; border-radius: 10px; padding: 15px; margin-bottom: 25px;">
     <h4 style="margin: 0 0 10px 0; color: #1E3A8A; display: flex; align-items: center; gap: 8px;">
@@ -208,7 +213,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 ])
 
 with tab1:
-    st.subheader("📈 1. Linha do Tempo Contínua por Mineradora (Estilo Bolsa)")
+    st.subheader("📈 1. Linha do Tempo Contínua por Mineradora")
     df_mensal = df_filtrado.groupby(['Data_Ref', 'Rotulo_Ref', 'Empresa'])['CFEM 60%'].sum().reset_index().sort_values('Data_Ref')
     df_mensal['CFEM_Escala'] = df_mensal['CFEM 60%'] / divisor
     df_mensal['CFEM_Formatado'] = df_mensal['CFEM 60%'].apply(fmt_brl)
@@ -299,6 +304,23 @@ with tab1:
     fig_inter.update_yaxes(tickprefix="R$ " if escala_opcao == "Em Reais (R$)" else "")
     fig_inter.update_layout(hovermode="x unified", height=480)
     st.plotly_chart(fig_inter, use_container_width=True)
+    
+    st.markdown("---")
+    st.markdown("📋 **Valores Exatos do Repasse Mensal (R$) por Mineradora:**")
+    pivot_df = df_filtrado.pivot_table(
+        index='Empresa',
+        columns=['Data_Ref', 'Rotulo_Ref'],
+        values='CFEM 60%',
+        aggfunc='sum',
+        fill_value=0.0
+    )
+    if not pivot_df.empty:
+        colunas_ordenadas = sorted(pivot_df.columns, key=lambda x: x)
+        pivot_df = pivot_df[colunas_ordenadas]
+        pivot_df.columns = [col for col in pivot_df.columns]
+        
+        pivot_df_fmt = pivot_df.map(fmt_brl)
+        st.dataframe(pivot_df_fmt, use_container_width=True)
 
 with tab2:
     st.subheader("🌐 Cotações de Mercado Internacional (Dólar & Minério de Ferro)")
@@ -319,7 +341,7 @@ with tab2:
         fig_usd.update_traces(line=dict(width=3), marker=dict(size=7), hovertemplate="Data: %{x|%b/%Y}<br>Dólar: <b>R$ %{y:.2f}</b><extra></extra>")
         fig_usd.update_xaxes(dtick="M2", tickformat="%b/%y", showgrid=False)
         fig_usd.update_yaxes(tickprefix="R$ ", showgrid=True, gridcolor="#F1F5F9")
-        fig_usd.update_layout(height=450, hovermode="x unified")
+        fig_usd.update_layout(height=420, hovermode="x unified")
         st.plotly_chart(fig_usd, use_container_width=True)
         
     with col_m2:
@@ -337,8 +359,37 @@ with tab2:
         fig_io.update_traces(line=dict(width=3), marker=dict(size=7), hovertemplate="Data: %{x|%b/%Y}<br>Minério: <b>US$ %{y:.1f}/t</b><extra></extra>")
         fig_io.update_xaxes(dtick="M2", tickformat="%b/%y", showgrid=False)
         fig_io.update_yaxes(tickprefix="US$ ", showgrid=True, gridcolor="#F1F5F9")
-        fig_io.update_layout(height=450, hovermode="x unified")
+        fig_io.update_layout(height=420, hovermode="x unified")
         st.plotly_chart(fig_io, use_container_width=True)
+        
+    st.markdown("---")
+    st.markdown("#### 🇧🇷 Preço Efetivo do Minério Convertido em Reais (R$/tonelada)")
+    fig_io_brl = px.area(
+        df_mkt_filtered,
+        x='Data_Ref',
+        y='Minério_BRL_Ton',
+        markers=True,
+        color_discrete_sequence=['#2563EB'],
+        labels={'Data_Ref': 'Mês/Ano', 'Minério_BRL_Ton': 'Preço em Reais (R$/ton)'},
+        title="Preço Efetivo do Minério em Reais (US$ Minério × Taxa Dólar)"
+    )
+    fig_io_brl.update_traces(line=dict(width=3), marker=dict(size=7), hovertemplate="Data: %{x|%b/%Y}<br>Minério em Reais: <b>R$ %{y:.2f}/t</b><extra></extra>")
+    fig_io_brl.update_xaxes(dtick="M2", tickformat="%b/%y", showgrid=False)
+    fig_io_brl.update_yaxes(tickprefix="R$ ", showgrid=True, gridcolor="#F1F5F9")
+    fig_io_brl.update_layout(height=420, hovermode="x unified")
+    st.plotly_chart(fig_io_brl, use_container_width=True)
+    
+    st.markdown("📋 **Tabela de Séries Históricas de Mercado:**")
+    df_mkt_show = df_mkt_filtered[['Key', 'Dolar_USD_BRL', 'Minério_USD_Ton', 'Minério_BRL_Ton']].copy()
+    df_mkt_show.columns = ['Mês/Ano', 'Dólar PTAX (R$)', 'Minério de Ferro (US$/ton)', 'Minério Convertido (R$/ton)']
+    st.dataframe(
+        df_mkt_show.style.format({
+            'Dólar PTAX (R$)': 'R$ {:.2f}',
+            'Minério de Ferro (US$/ton)': 'US$ {:.2f}',
+            'Minério Convertido (R$/ton)': 'R$ {:.2f}'
+        }),
+        use_container_width=True
+    )
 
 with tab3:
     st.subheader("🏆 Ranking de Arrecadação por Empresas (Com Separação Anual)")
