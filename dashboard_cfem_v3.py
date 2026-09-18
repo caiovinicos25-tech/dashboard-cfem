@@ -27,10 +27,13 @@ def fmt_usd(valor):
         return "US$ 0.00"
     return f"US$ {valor:,.2f}"
 
-# Carregamento e tratamento dos dados da CFEM
+# Carregamento e tratamento dos dados da CFEM (com tolerância a codificações de texto)
 @st.cache_data(ttl=86400) # Atualização diária (24 horas)
 def load_data():
-    df = pd.read_csv('Planilha_CFEM_consolidada.csv', sep=';', encoding='utf-8-sig')
+    try:
+        df = pd.read_csv('Planilha_CFEM_consolidada.csv', sep=';', encoding='utf-8-sig')
+    except (UnicodeDecodeError, Exception):
+        df = pd.read_csv('Planilha_CFEM_consolidada.csv', sep=';', encoding='latin1')
     
     num_cols = ['Total Operações', 'CFEM 100%', 'CFEM 60%']
     for col in num_cols:
@@ -68,7 +71,7 @@ def fetch_external_market_indicators():
                 dt_str = item['data']
                 partes = dt_str.split('/')
                 if len(partes) == 3:
-                    k = f"{partes[1]}-{partes[2]}"
+                    k = f"{partes}-{partes}"
                     usd_dict[k] = float(item['valor'])
     except Exception:
         pass
@@ -94,7 +97,6 @@ def fetch_external_market_indicators():
     df_mkt['Minério_USD_Ton'] = df_mkt['Key'].map(lambda x: iron_ore_benchmark.get(x, 101.5))
     df_mkt['Minério_BRL_Ton'] = df_mkt['Minério_USD_Ton'] * df_mkt['Dolar_USD_BRL']
     
-    # Cotações de Fechamento do Dia Anterior
     fechamento_dolar = float(df_mkt['Dolar_USD_BRL'].iloc[-1])
     fechamento_minerio_usd = float(df_mkt['Minério_USD_Ton'].iloc[-1])
     fechamento_minerio_brl = float(df_mkt['Minério_BRL_Ton'].iloc[-1])
@@ -120,7 +122,6 @@ filtro_serra = st.sidebar.checkbox(
 
 st.sidebar.markdown("---")
 
-# Unidades/Escala financeira
 escala_opcao = st.sidebar.radio("Exibição dos Valores nos Gráficos:", ["Em Reais (R$)", "Em Milhões (R$ Mi)"])
 divisor = 1_000_000.0 if escala_opcao == "Em Milhões (R$ Mi)" else 1.0
 sufixo_escala = "Mi" if escala_opcao == "Em Milhões (R$ Mi)" else "R$"
@@ -144,14 +145,12 @@ else:
 substancias_disponiveis = sorted(df['Substância'].unique().tolist())
 substancias_selecionadas = st.sidebar.multiselect("Selecione os Materiais/Substâncias:", options=substancias_disponiveis, default=substancias_disponiveis)
 
-# Filtragem dos dados
 df_filtrado = df[
     (df['Ano'].isin(anos_selecionados)) &
     (df['Empresa'].isin(empresas_selecionadas)) &
     (df['Substância'].isin(substancias_selecionadas))
 ].copy()
 
-# Se o filtro Serra das Serrinhas estiver ativo, unifica o nome das 4 empresas para "Serra das Serrinhas"
 if filtro_serra:
     df_filtrado['Empresa'] = 'Serra das Serrinhas'
 
@@ -164,7 +163,6 @@ if filtro_serra:
 else:
     st.markdown("Visão executiva dos repasses municipais da CFEM correlacionados a commodities e câmbio.")
 
-# Quadro Destacado com Cotações de Mercado na Data Atual (Fechamento do Dia Anterior)
 st.markdown(f"""
 <div style="background-color: #F8FAFC; border: 2px solid #3B82F6; border-radius: 10px; padding: 15px; margin-bottom: 25px;">
     <h4 style="margin: 0 0 10px 0; color: #1E3A8A; display: flex; align-items: center; gap: 8px;">
@@ -230,7 +228,7 @@ with tab1:
     fig_line.update_traces(
         line=dict(width=3.5 if filtro_serra else 3),
         marker=dict(size=8 if filtro_serra else 7),
-        hovertemplate="<b>%{customdata}</b><br>%{fullData.name}<br>Repasse: <b>%{customdata[2]}</b><extra></extra>"
+        hovertemplate="<b>%{customdata}</b><br>%{fullData.name}<br>Repasse: <b>%{customdata}</b><extra></extra>"
     )
     
     y_type = "log" if escala_log else "linear"
@@ -379,7 +377,7 @@ with tab3:
                 title="Comparativo de Arrecadação por Empresa Separado por Ano"
             )
             fig_bar_ano.update_traces(
-                hovertemplate="Entidade: %{y}<br>Ano: <b>%{customdata}</b><br>Repasse: <b>%{customdata[2]}</b><extra></extra>"
+                hovertemplate="Entidade: %{y}<br>Ano: <b>%{customdata}</b><br>Repasse: <b>%{customdata}</b><extra></extra>"
             )
             fig_bar_ano.update_layout(height=540, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_bar_ano, use_container_width=True)
